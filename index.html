@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Drift with the Sound — A peaceful ambient music experience. Listen to your playlist beneath a cinematic moonlit river scene." />
+  <meta name="theme-color" content="#060c16" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Drift with the Sound" />
+  <meta property="og:description" content="A peaceful ambient music experience." />
+  <meta property="og:type" content="website" />
+
+  <title>Drift with the sound</title>
+
+  <!-- Preload critical font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body>
+
+  <!-- ── Background Video ───────────────────────────────────── -->
+  <video id="bg-video" autoplay muted loop playsinline poster="assets/bg.jpg" aria-hidden="true">
+    <source src="assets/background.mp4" type="video/mp4" />
+  </video>
+
+  <!-- Subtle gradient overlay -->
+  <div id="bg-overlay" aria-hidden="true"></div>
+
+  <!-- ── Hidden YouTube Player (off-screen, required for IFrame API) ── -->
+  <div id="yt-player-wrap" aria-hidden="true"></div>
+
+  <!-- ── Toast Notification ──────────────────────────────── -->
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- ── App ─────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- Brand -->
+    <header id="brand" aria-label="Site name">
+      <h1>Drift with the Sound</h1>
+    </header>
+
+    <!-- ── Music Player ─────────────────────────────────── -->
+    <main id="player-container" role="region" aria-label="Music player">
+      <div id="player-shell" class="glass">
+
+        <!-- Track Info Row -->
+        <div id="track-info">
+          <div id="track-icon" aria-hidden="true">
+            <!-- Populated by player.js -->
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+            </svg>
+          </div>
+          <div id="track-text">
+            <div id="track-title">Moonlit River</div>
+            <div id="track-subtitle">Add a playlist to begin</div>
+          </div>
+          <button id="settings-btn" aria-label="Open music settings" title="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61
+              l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81
+              c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29
+              L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58
+              C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61
+              l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54
+              c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94
+              l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z
+              M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Progress Bar (hidden in empty state) -->
+        <div id="progress-section" hidden>
+          <div id="progress-bar-wrap" role="slider" aria-label="Playback progress" aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow="0" tabindex="0">
+            <div id="progress-bar-fill"></div>
+            <div id="progress-bar-thumb" aria-hidden="true"></div>
+          </div>
+          <div id="time-row" aria-hidden="true">
+            <span id="time-elapsed">0:00</span>
+            <span id="time-duration">0:00</span>
+          </div>
+        </div>
+
+        <!-- Controls Row (hidden in empty state) -->
+        <div id="controls-row" hidden>
+          <!-- Left: Shuffle -->
+          <div id="controls-left">
+            <button id="btn-shuffle" class="ctrl-btn" aria-label="Shuffle" aria-pressed="false" title="Shuffle">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Center: Prev / Play-Pause / Next -->
+          <div id="controls-center">
+            <button id="btn-prev" class="ctrl-btn" aria-label="Previous track" title="Previous">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+              </svg>
+            </button>
+
+            <button id="btn-play-pause" class="ctrl-btn" aria-label="Play" title="Play / Pause">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+
+            <button id="btn-next" class="ctrl-btn" aria-label="Next track" title="Next">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M6 18l8.5-6L6 6v12zm2-8.14 5.25 3.64L8 17.14V9.86zM16 6h2v12h-2z" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Right: Repeat + Volume -->
+          <div id="controls-right">
+            <button id="btn-repeat" class="ctrl-btn" aria-label="Repeat" aria-pressed="false" title="Repeat">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+              </svg>
+            </button>
+
+            <div id="volume-wrap">
+              <button id="btn-mute" class="ctrl-btn" aria-label="Mute" title="Mute / Unmute">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
+                </svg>
+              </button>
+              <input id="volume-slider" type="range" min="0" max="1" step="0.01" value="0.75" aria-label="Volume"
+                title="Volume" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state">
+          <p>Sit back and enjoy the night</p>
+          <button id="empty-open-settings" aria-label="Open settings to add a playlist">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
+            </svg>
+            Add a playlist
+          </button>
+        </div>
+
+      </div><!-- /player-shell -->
+    </main><!-- /player-container -->
+
+  </div><!-- /app -->
+
+  <!-- ── Settings Drawer ────────────────────────────────── -->
+  <div id="settings-overlay" aria-hidden="true" role="presentation"></div>
+
+  <aside id="settings-drawer" class="glass" role="dialog" aria-modal="true" aria-label="Music settings"
+    aria-hidden="true">
+    <!-- Header -->
+    <div id="settings-header">
+      <span id="settings-title">Music Settings</span>
+      <button id="settings-close" aria-label="Close settings" title="Close">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path
+            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div id="settings-body">
+
+      <!-- Provider Tabs -->
+      <div id="provider-tabs" role="tablist" aria-label="Music provider">
+        <button class="provider-tab active" data-provider="youtube" role="tab" aria-selected="true"
+          aria-controls="provider-panel" id="tab-youtube">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path
+              d="M21.593 7.203a2.506 2.506 0 0 0-1.762-1.766C18.265 5.007 12 5 12 5s-6.264-.007-7.831.44a2.56 2.56 0 0 0-1.766 1.763c-.44 1.68-.44 5.19-.44 5.19s0 3.52.44 5.19a2.504 2.504 0 0 0 1.766 1.762c1.575.44 7.83.44 7.83.44s6.265 0 7.831-.44a2.507 2.507 0 0 0 1.762-1.763c.44-1.67.44-5.187.44-5.187s0-3.519-.44-5.192zm-11.586 8.406V8.394l5.232 3.608-5.232 3.607z" />
+          </svg>
+          YouTube
+        </button>
+        <button class="provider-tab" data-provider="spotify" role="tab" aria-selected="false"
+          aria-controls="provider-panel" id="tab-spotify">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path
+              d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+          </svg>
+          Spotify
+        </button>
+      </div>
+
+      <!-- Playlist URL Input -->
+      <div id="provider-panel" role="tabpanel" aria-labelledby="tab-youtube">
+        <label class="settings-label" for="playlist-url-input">Playlist URL</label>
+        <input id="playlist-url-input" class="settings-input" type="url" placeholder="Paste your playlist link here..."
+          autocomplete="off" autocorrect="off" spellcheck="false" aria-describedby="url-error-msg" />
+        <div id="url-error-msg" class="settings-error-msg" role="alert" aria-live="polite"></div>
+
+        <!-- Actions -->
+        <div class="settings-actions">
+          <button id="btn-load-playlist" class="btn-primary">Load Playlist</button>
+          <button id="btn-clear-playlist" class="btn-secondary">Clear</button>
+        </div>
+
+        <!-- Provider Info Note -->
+        <div id="provider-note" class="provider-note">
+          Paste a <strong>YouTube playlist URL</strong> to begin listening.
+          Controls play, pause, next, previous, seek and volume.
+        </div>
+      </div>
+
+      <!-- Spotify Embed Container -->
+      <div id="spotify-embed-wrap">
+        <iframe id="spotify-iframe" title="Spotify music player"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+      </div>
+
+    </div><!-- /settings-body -->
+  </aside><!-- /settings-drawer -->
+
+  <!-- ── JS ───────────────────────────────────────────────── -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+
+</html>
