@@ -324,6 +324,9 @@ export class Settings {
     if (this.$btnClearBg) {
       this.$btnClearBg.classList.add('visible');
     }
+
+    // Show the reposition button now that a custom image is active
+    this.bgManager.showRepositionButton(true);
   }
 
   _handleClearBg() {
@@ -343,6 +346,9 @@ export class Settings {
     if (this.$bgUploadInput) this.$bgUploadInput.value = '';
     if (this.$btnClearBg)    this.$btnClearBg.classList.remove('visible');
     this._clearBgError();
+
+    // Hide the reposition button
+    this.bgManager.showRepositionButton(false);
   }
 
   // ── Error display ───────────────────────────────────────────

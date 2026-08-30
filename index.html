@@ -34,6 +34,24 @@
   <!-- Subtle gradient overlay -->
   <div id="bg-overlay" aria-hidden="true"></div>
 
+  <!-- Reposition mode: drag hint overlay -->
+  <div id="reposition-overlay" aria-hidden="true">
+    <div id="reposition-hint">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
+      Drag to reposition
+    </div>
+    <button id="reposition-done" aria-label="Done repositioning">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      Done
+    </button>
+  </div>
+
+  <!-- Floating reposition trigger button -->
+  <button id="reposition-btn" aria-label="Adjust background image position" title="Adjust position" hidden>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
+    Adjust position
+  </button>
+
   <!-- ── Hidden YouTube Player (off-screen, required for IFrame API) ── -->
   <div id="yt-player-wrap" aria-hidden="true"></div>
 

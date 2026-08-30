@@ -120,6 +120,119 @@ html, body {
   pointer-events: none;
 }
 
+/* ── Reposition Button ─────────────────────────────────────── */
+#reposition-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px 7px 10px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: var(--color-silver);
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  transition: opacity var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+#reposition-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: var(--glass-border-hover);
+  color: var(--color-white);
+}
+
+#reposition-btn[hidden] {
+  display: none;
+}
+
+/* ── Reposition Overlay ────────────────────────────────────── */
+#reposition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 40px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#reposition-overlay.active {
+  pointer-events: all;
+  opacity: 1;
+}
+
+#reposition-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(4, 10, 20, 0.70);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 999px;
+  color: rgba(255,255,255,0.80);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: none;
+  margin-right: 12px;
+}
+
+#reposition-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px 10px 14px;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.30);
+  border-radius: 999px;
+  color: var(--color-white);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: background var(--transition-fast);
+}
+
+#reposition-done:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Grab cursor during reposition mode */
+body.reposition-active #bg-dynamic {
+  cursor: grab;
+}
+
+body.reposition-active.dragging #bg-dynamic {
+  cursor: grabbing;
+}
+
+/* Dim the app UI during reposition so the background is clearly visible */
+body.reposition-active #app,
+body.reposition-active #bg-overlay {
+  opacity: 0.3;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+
+
 /* ── App Container ────────────────────────────────────────── */
 #app {
   position: fixed;

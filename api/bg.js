@@ -14,7 +14,7 @@ const PEXELS_BASE    = 'https://api.pexels.com/v1/search';
 const MAX_QUERY_LEN  = 120;
 const QUERY_REGEX    = /^[\w\s,'-]{1,120}$/;
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // ── CORS: only allow same origin (Vercel enforces this for same-site
   //          functions, but be explicit) ───────────────────────────────
   const origin = req.headers.origin || '';

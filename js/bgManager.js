@@ -10,6 +10,10 @@
  *
  * The cross-fade is driven by a CSS opacity transition on #bg-dynamic.
  * sessionStorage caches fetched URLs per track title to avoid repeat requests.
+ *
+ * Drag-to-reposition:
+ *   When a custom image is active, the user can enter reposition mode.
+ *   Dragging the background updates object-position in real time.
  */
 
 const CACHE_PREFIX   = 'moonlit_bg_';
@@ -21,6 +25,9 @@ export class BgManager {
   constructor() {
     this.$bgVideo   = document.getElementById('bg-video');
     this.$bgDynamic = document.getElementById('bg-dynamic');
+    this.$repoBtn   = document.getElementById('reposition-btn');
+    this.$repoOverlay = document.getElementById('reposition-overlay');
+    this.$repoDone  = document.getElementById('reposition-done');
 
     // State
     this._customObjectUrl  = null;   // blob: URL for uploaded image
@@ -28,8 +35,110 @@ export class BgManager {
     this._currentDynamicUrl = null;
     this._pendingFetch     = null;   // AbortController for in-flight fetch
 
-    // Error callback for UI feedback
-    this._onUploadError = null;
+    // Reposition state
+    this._position = { x: 50, y: 50 }; // object-position percentages
+    this._isRepositioning = false;
+    this._dragStart = null;            // { clientX, clientY, posX, posY }
+
+    this._initRepositionControls();
+  }
+
+  // ── Reposition controls ──────────────────────────────────────
+  _initRepositionControls() {
+    if (this.$repoBtn) {
+      this.$repoBtn.addEventListener('click', () => this.enterRepositionMode());
+    }
+
+    if (this.$repoDone) {
+      this.$repoDone.addEventListener('click', () => this.exitRepositionMode());
+    }
+
+    // Keyboard: Escape exits reposition mode
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this._isRepositioning) {
+        this.exitRepositionMode();
+      }
+    });
+  }
+
+  enterRepositionMode() {
+    if (!this._hasCustom || !this.$bgDynamic) return;
+    this._isRepositioning = true;
+
+    document.body.classList.add('reposition-active');
+    if (this.$repoOverlay) this.$repoOverlay.classList.add('active');
+    if (this.$repoBtn) this.$repoBtn.hidden = true;
+
+    // Wire drag events onto the bg-dynamic element
+    this.$bgDynamic.style.pointerEvents = 'all';
+    this.$bgDynamic.addEventListener('pointerdown', this._onPointerDown);
+  }
+
+  exitRepositionMode() {
+    this._isRepositioning = false;
+
+    document.body.classList.remove('reposition-active', 'dragging');
+    if (this.$repoOverlay) this.$repoOverlay.classList.remove('active');
+    if (this.$repoBtn) this.$repoBtn.hidden = false;
+
+    // Remove drag events
+    if (this.$bgDynamic) {
+      this.$bgDynamic.style.pointerEvents = '';
+      this.$bgDynamic.removeEventListener('pointerdown', this._onPointerDown);
+    }
+
+    document.removeEventListener('pointermove', this._onPointerMove);
+    document.removeEventListener('pointerup',   this._onPointerUp);
+  }
+
+  // Arrow functions so `this` is always bound correctly
+  _onPointerDown = (e) => {
+    e.preventDefault();
+    this._dragStart = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      posX: this._position.x,
+      posY: this._position.y,
+    };
+    document.body.classList.add('dragging');
+    document.addEventListener('pointermove', this._onPointerMove);
+    document.addEventListener('pointerup',   this._onPointerUp);
+  };
+
+  _onPointerMove = (e) => {
+    if (!this._dragStart) return;
+
+    const dx = e.clientX - this._dragStart.clientX;
+    const dy = e.clientY - this._dragStart.clientY;
+
+    // Sensitivity: 100px of drag = 25% position change
+    const sensitivity = 0.25;
+    const newX = Math.max(0, Math.min(100, this._dragStart.posX - dx * sensitivity));
+    const newY = Math.max(0, Math.min(100, this._dragStart.posY - dy * sensitivity));
+
+    this._position = { x: newX, y: newY };
+    this._applyPosition();
+  };
+
+  _onPointerUp = () => {
+    this._dragStart = null;
+    document.body.classList.remove('dragging');
+    document.removeEventListener('pointermove', this._onPointerMove);
+    document.removeEventListener('pointerup',   this._onPointerUp);
+  };
+
+  _applyPosition() {
+    if (!this.$bgDynamic) return;
+    this.$bgDynamic.style.objectPosition = `${this._position.x}% ${this._position.y}%`;
+  }
+
+  // ── Show / hide reposition button ───────────────────────────
+  showRepositionButton(visible) {
+    if (!this.$repoBtn) return;
+    this.$repoBtn.hidden = !visible;
+    if (!visible && this._isRepositioning) {
+      this.exitRepositionMode();
+    }
   }
 
   /**
@@ -106,6 +215,9 @@ export class BgManager {
       URL.revokeObjectURL(this._customObjectUrl);
     }
 
+    // Reset position to center when a new image is uploaded
+    this._position = { x: 50, y: 50 };
+
     this._customObjectUrl = URL.createObjectURL(file);
     this._hasCustom       = true;
 
@@ -122,6 +234,12 @@ export class BgManager {
       this._customObjectUrl = null;
     }
     this._hasCustom = false;
+    this._position  = { x: 50, y: 50 };
+
+    // Reset object-position
+    if (this.$bgDynamic) {
+      this.$bgDynamic.style.objectPosition = '';
+    }
 
     if (this._currentDynamicUrl) {
       this._crossFadeTo(this._currentDynamicUrl);
@@ -156,6 +274,11 @@ export class BgManager {
       img.src = imageUrl;
       img.classList.add('visible');
       this._currentDynamicUrl = imageUrl;
+
+      // Apply saved position for custom images
+      if (hideVideo) {
+        this._applyPosition();
+      }
 
       if (hideVideo && this.$bgVideo) {
         // Dim the video layer so only the image shows
