@@ -16,6 +16,8 @@
  *   Dragging the background updates object-position in real time.
  */
 
+import { Storage } from './storage.js';
+
 const CACHE_PREFIX   = 'moonlit_bg_';
 const BG_FETCH_PATH  = '/api/bg';
 const MAX_FILE_SIZE  = 8 * 1024 * 1024; // 8 MB
@@ -149,6 +151,9 @@ export class BgManager {
   async setDynamic(trackTitle, trackAuthor = '') {
     if (this._hasCustom) return;
     if (!trackTitle) return;
+
+    // Respect the user's opt-in preference — off by default
+    if (!Storage.getAutoBg()) return;
 
     // Build a mood-based search query (title + author keeps it focused)
     const query = this._buildQuery(trackTitle, trackAuthor);

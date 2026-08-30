@@ -7,6 +7,7 @@ const KEYS = {
   PROVIDER:     'moonlit_provider',
   PLAYLIST_URL: 'moonlit_playlist_url',
   VOLUME:       'moonlit_volume',
+  AUTO_BG:      'moonlit_auto_bg',
 };
 
 export const Storage = {
@@ -41,6 +42,10 @@ export const Storage = {
 
   getVolume()       { return parseFloat(this.get(KEYS.VOLUME, '0.75')); },
   setVolume(v)      { this.set(KEYS.VOLUME, v); },
+
+  // Auto-background defaults to false (opt-in)
+  getAutoBg()       { return this.get(KEYS.AUTO_BG, 'false') === 'true'; },
+  setAutoBg(v)      { this.set(KEYS.AUTO_BG, v ? 'true' : 'false'); },
 
   clearPlaylist() {
     this.remove(KEYS.PLAYLIST_URL);

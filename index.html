@@ -275,6 +275,27 @@
         <div id="bg-upload-error" class="settings-error-msg" role="alert" aria-live="polite"></div>
 
         <p class="bg-upload-note">Your image stays in your browser — it is never uploaded to any server.</p>
+
+        <!-- Auto-background toggle -->
+        <div class="settings-section-divider" aria-hidden="true"></div>
+        <div id="auto-bg-row">
+          <div id="auto-bg-label-wrap">
+            <span class="settings-label" id="auto-bg-label">Auto background with music</span>
+            <span class="auto-bg-sublabel">Fetches a landscape photo matching each song — off by default</span>
+          </div>
+          <button
+            id="auto-bg-toggle"
+            class="toggle-btn"
+            role="switch"
+            aria-checked="false"
+            aria-labelledby="auto-bg-label"
+            title="Enable automatic background change with songs"
+          >
+            <span class="toggle-track">
+              <span class="toggle-thumb"></span>
+            </span>
+          </button>
+        </div>
       </div>
 
     </div><!-- /settings-body -->

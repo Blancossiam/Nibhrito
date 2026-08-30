@@ -48,6 +48,7 @@ export class Settings {
     this.$btnClearBg    = document.getElementById('btn-clear-bg');
     this.$bgUploadError = document.getElementById('bg-upload-error');
     this.$bgPreview     = document.getElementById('bg-upload-preview');
+    this.$autoBgToggle  = document.getElementById('auto-bg-toggle');
 
     // State
     this.activeProvider = Storage.getProvider();  // 'youtube' | 'spotify'
@@ -117,6 +118,20 @@ export class Settings {
 
     if (this.$btnClearBg) {
       this.$btnClearBg.addEventListener('click', () => this._handleClearBg());
+    }
+
+    // ── Auto-background toggle ─────────────────────────────
+    if (this.$autoBgToggle) {
+      // Restore saved preference
+      const savedAutoBg = Storage.getAutoBg();
+      this.$autoBgToggle.setAttribute('aria-checked', savedAutoBg ? 'true' : 'false');
+
+      this.$autoBgToggle.addEventListener('click', () => {
+        const isOn = this.$autoBgToggle.getAttribute('aria-checked') === 'true';
+        const newState = !isOn;
+        this.$autoBgToggle.setAttribute('aria-checked', newState ? 'true' : 'false');
+        Storage.setAutoBg(newState);
+      });
     }
   }
 
