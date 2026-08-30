@@ -304,7 +304,6 @@ export class Settings {
     // Validate MIME
     if (!file.type.startsWith('image/')) {
       this._showBgError('Only image files are supported (JPG, PNG, GIF, WebP, etc.).');
-      // Reset the input so the same file can be re-selected after fix
       this.$bgUploadInput.value = '';
       return;
     }
@@ -317,31 +316,18 @@ export class Settings {
       return;
     }
 
-    // Apply — entirely client-side, no network request
-    const result = this.bgManager.setCustom(file);
-    if (!result.ok) {
-      this._showBgError(result.error);
-      this.$bgUploadInput.value = '';
-      return;
-    }
-
-    // Show thumbnail preview and activate clear button
-    if (this.$bgPreview) {
-      // Revoke any existing preview URL to avoid memory leaks
-      if (this.$bgPreview.dataset.blobUrl) {
-        URL.revokeObjectURL(this.$bgPreview.dataset.blobUrl);
+    // Open crop modal immediately — applied only when user clicks Apply
+    this.bgManager.openCropModal(file, (appliedFile) => {
+      // Update thumbnail preview in settings drawer
+      if (this.$bgPreview) {
+        if (this.$bgPreview.dataset.blobUrl) URL.revokeObjectURL(this.$bgPreview.dataset.blobUrl);
+        const thumbUrl = URL.createObjectURL(appliedFile);
+        this.$bgPreview.dataset.blobUrl = thumbUrl;
+        this.$bgPreview.style.backgroundImage = `url("${thumbUrl}")`;
+        this.$bgPreview.classList.add('has-image');
       }
-      const previewUrl = URL.createObjectURL(file);
-      this.$bgPreview.dataset.blobUrl = previewUrl;
-      this.$bgPreview.style.backgroundImage = `url(${CSS.escape ? `"${previewUrl}"` : previewUrl})`;
-      this.$bgPreview.classList.add('has-image');
-    }
-    if (this.$btnClearBg) {
-      this.$btnClearBg.classList.add('visible');
-    }
-
-    // Show the reposition button now that a custom image is active
-    this.bgManager.showRepositionButton(true);
+      if (this.$btnClearBg) this.$btnClearBg.classList.add('visible');
+    });
   }
 
   _handleClearBg() {
@@ -361,9 +347,6 @@ export class Settings {
     if (this.$bgUploadInput) this.$bgUploadInput.value = '';
     if (this.$btnClearBg)    this.$btnClearBg.classList.remove('visible');
     this._clearBgError();
-
-    // Hide the reposition button
-    this.bgManager.showRepositionButton(false);
   }
 
   // ── Error display ───────────────────────────────────────────

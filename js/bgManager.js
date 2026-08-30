@@ -2,185 +2,261 @@
  * bgManager.js — Background management
  *
  * Handles three background layers:
- *   1. #bg-video  — the default moonlit river video (always present, z-index 0)
- *   2. #bg-dynamic — dynamic photo fetched per-track via /api/bg (z-index 1)
- *   3. Custom upload — user's own image, overrides both (applied to #bg-dynamic)
+ *   1. #bg-video    — default moonlit river video (z-index 0)
+ *   2. #bg-dynamic  — dynamic photo per-track via /api/bg, or custom image (z-index 1)
+ *   3. Custom upload — user's own image with crop/position control
  *
  * Priority: custom upload > dynamic fetch > default video
  *
- * The cross-fade is driven by a CSS opacity transition on #bg-dynamic.
- * sessionStorage caches fetched URLs per track title to avoid repeat requests.
- *
- * Drag-to-reposition:
- *   When a custom image is active, the user can enter reposition mode.
- *   Dragging the background updates object-position in real time.
+ * Crop modal:
+ *   Opens immediately when a user selects an image.
+ *   Provides drag-to-reposition, position presets, and Fill/Fit display modes.
+ *   User confirms with "Apply" before the image becomes the background.
  */
 
 import { Storage } from './storage.js';
 
-const CACHE_PREFIX   = 'moonlit_bg_';
-const BG_FETCH_PATH  = '/api/bg';
-const MAX_FILE_SIZE  = 8 * 1024 * 1024; // 8 MB
-const FADE_DURATION  = 1200;             // ms — matches CSS transition
+const CACHE_PREFIX  = 'moonlit_bg_';
+const BG_FETCH_PATH = '/api/bg';
+const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 MB
 
 export class BgManager {
   constructor() {
     this.$bgVideo   = document.getElementById('bg-video');
     this.$bgDynamic = document.getElementById('bg-dynamic');
-    this.$repoBtn   = document.getElementById('reposition-btn');
-    this.$repoOverlay = document.getElementById('reposition-overlay');
-    this.$repoDone  = document.getElementById('reposition-done');
 
-    // State
-    this._customObjectUrl  = null;   // blob: URL for uploaded image
-    this._hasCustom        = false;
+    // Runtime state
+    this._customObjectUrl   = null;
+    this._hasCustom         = false;
     this._currentDynamicUrl = null;
-    this._pendingFetch     = null;   // AbortController for in-flight fetch
+    this._pendingFetch      = null;
 
-    // Reposition state
-    this._position = { x: 50, y: 50 }; // object-position percentages
-    this._isRepositioning = false;
-    this._dragStart = null;            // { clientX, clientY, posX, posY }
+    // Crop modal state
+    this._cropFile       = null;
+    this._cropPosition   = { x: 50, y: 50 };
+    this._cropFit        = 'cover';
+    this._cropDragStart  = null;
+    this._onApplyCallback = null;
 
-    this._initRepositionControls();
+    // Crop modal DOM refs
+    this.$cropModal    = document.getElementById('crop-modal');
+    this.$cropViewport = document.getElementById('crop-preview-viewport');
+    this.$cropImg      = document.getElementById('crop-preview-img');
+    this.$cropApply    = document.getElementById('crop-apply-btn');
+    this.$cropCancel   = document.getElementById('crop-cancel-btn');
+    this.$cropCancelX  = document.getElementById('crop-cancel-x');
+
+    this._initCropModal();
   }
 
-  // ── Reposition controls ──────────────────────────────────────
-  _initRepositionControls() {
-    if (this.$repoBtn) {
-      this.$repoBtn.addEventListener('click', () => this.enterRepositionMode());
-    }
+  // ── Crop Modal Setup ─────────────────────────────────────────
+  _initCropModal() {
+    this.$cropApply?.addEventListener('click', () => this._applyCrop());
+    this.$cropCancel?.addEventListener('click', () => this._closeCropModal());
+    this.$cropCancelX?.addEventListener('click', () => this._closeCropModal());
 
-    if (this.$repoDone) {
-      this.$repoDone.addEventListener('click', () => this.exitRepositionMode());
-    }
+    // Backdrop click closes
+    this.$cropModal?.addEventListener('click', (e) => {
+      if (e.target === this.$cropModal) this._closeCropModal();
+    });
 
-    // Keyboard: Escape exits reposition mode
+    // Escape closes
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this._isRepositioning) {
-        this.exitRepositionMode();
+      if (e.key === 'Escape' && this.$cropModal?.classList.contains('open')) {
+        this._closeCropModal();
       }
+    });
+
+    // Position preset buttons
+    document.querySelectorAll('.crop-preset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this._cropPosition = { x: parseFloat(btn.dataset.x), y: parseFloat(btn.dataset.y) };
+        this._updateCropPreview();
+        document.querySelectorAll('.crop-preset').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // Fit/fill buttons
+    document.querySelectorAll('.crop-fit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this._cropFit = btn.dataset.fit;
+        this._updateCropPreview();
+        document.querySelectorAll('.crop-fit-btn').forEach((b) => {
+          b.classList.toggle('active', b === btn);
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+        });
+        // Dim presets when "Fit" mode (position doesn't matter for contain)
+        const presetsEl = document.getElementById('crop-presets');
+        if (presetsEl) {
+          const disabled = this._cropFit === 'contain';
+          presetsEl.style.opacity = disabled ? '0.35' : '1';
+          presetsEl.style.pointerEvents = disabled ? 'none' : '';
+        }
+      });
     });
   }
 
-  enterRepositionMode() {
-    if (!this._hasCustom || !this.$bgDynamic) return;
-    this._isRepositioning = true;
+  /**
+   * Open the crop modal for a file.
+   * onApply(file) is called when the user confirms.
+   */
+  openCropModal(file, onApply) {
+    this._cropFile         = file;
+    this._onApplyCallback  = onApply;
+    this._cropPosition     = { x: 50, y: 50 };
+    this._cropFit          = 'cover';
 
-    document.body.classList.add('reposition-active');
-    if (this.$repoOverlay) this.$repoOverlay.classList.add('active');
-    if (this.$repoBtn) this.$repoBtn.hidden = true;
+    // Reset UI state
+    document.querySelectorAll('.crop-preset').forEach((b, i) => {
+      b.classList.toggle('active', b.dataset.x === '50' && b.dataset.y === '50');
+    });
+    document.querySelectorAll('.crop-fit-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.fit === 'cover');
+      b.setAttribute('aria-pressed', b.dataset.fit === 'cover' ? 'true' : 'false');
+    });
+    const presetsEl = document.getElementById('crop-presets');
+    if (presetsEl) { presetsEl.style.opacity = ''; presetsEl.style.pointerEvents = ''; }
 
-    // Wire drag events onto the bg-dynamic element
-    this.$bgDynamic.style.pointerEvents = 'all';
-    this.$bgDynamic.addEventListener('pointerdown', this._onPointerDown);
+    // Load image into preview
+    if (this.$cropImg) {
+      if (this.$cropImg._tempUrl) URL.revokeObjectURL(this.$cropImg._tempUrl);
+      const tempUrl = URL.createObjectURL(file);
+      this.$cropImg._tempUrl = tempUrl;
+      this.$cropImg.src = tempUrl;
+    }
+    this._updateCropPreview();
+
+    // Show modal
+    this.$cropModal?.removeAttribute('aria-hidden');
+    this.$cropModal?.setAttribute('aria-hidden', 'false');
+    this.$cropModal?.classList.add('open');
+
+    // Wire drag on viewport
+    this._setupCropDrag();
   }
 
-  exitRepositionMode() {
-    this._isRepositioning = false;
+  _closeCropModal() {
+    this.$cropModal?.classList.remove('open');
+    this.$cropModal?.setAttribute('aria-hidden', 'true');
+    if (this.$cropViewport) this.$cropViewport.classList.remove('dragging', 'has-dragged');
 
-    document.body.classList.remove('reposition-active', 'dragging');
-    if (this.$repoOverlay) this.$repoOverlay.classList.remove('active');
-    if (this.$repoBtn) this.$repoBtn.hidden = false;
-
-    // Remove drag events
-    if (this.$bgDynamic) {
-      this.$bgDynamic.style.pointerEvents = '';
-      this.$bgDynamic.removeEventListener('pointerdown', this._onPointerDown);
+    // Revoke temp preview URL
+    if (this.$cropImg?._tempUrl) {
+      URL.revokeObjectURL(this.$cropImg._tempUrl);
+      this.$cropImg._tempUrl = null;
+      this.$cropImg.src = '';
     }
 
-    document.removeEventListener('pointermove', this._onPointerMove);
-    document.removeEventListener('pointerup',   this._onPointerUp);
+    this._removeCropDrag();
+    this._cropFile = null;
+    this._onApplyCallback = null;
   }
 
-  // Arrow functions so `this` is always bound correctly
-  _onPointerDown = (e) => {
+  _applyCrop() {
+    if (!this._cropFile) return;
+
+    const file     = this._cropFile;
+    const position = { ...this._cropPosition };
+    const fit      = this._cropFit;
+    const callback = this._onApplyCallback;
+
+    // Close modal (revokes temp preview URL)
+    this._closeCropModal();
+
+    // Apply image to background
+    this._applyCustomImage(file, position, fit);
+
+    callback?.(file);
+  }
+
+  _applyCustomImage(file, position, fit) {
+    if (this._customObjectUrl) URL.revokeObjectURL(this._customObjectUrl);
+
+    this._customObjectUrl = URL.createObjectURL(file);
+    this._hasCustom       = true;
+
+    this._crossFadeTo(this._customObjectUrl, true, position, fit);
+  }
+
+  _updateCropPreview() {
+    if (!this.$cropImg) return;
+    this.$cropImg.style.objectFit      = this._cropFit;
+    this.$cropImg.style.objectPosition = `${this._cropPosition.x}% ${this._cropPosition.y}%`;
+  }
+
+  // ── Drag-in-preview ─────────────────────────────────────────
+  _setupCropDrag() {
+    this.$cropViewport?.addEventListener('pointerdown', this._cropDown);
+  }
+
+  _removeCropDrag() {
+    this.$cropViewport?.removeEventListener('pointerdown', this._cropDown);
+    document.removeEventListener('pointermove', this._cropMove);
+    document.removeEventListener('pointerup',   this._cropUp);
+  }
+
+  _cropDown = (e) => {
     e.preventDefault();
-    this._dragStart = {
+    this._cropDragStart = {
       clientX: e.clientX,
       clientY: e.clientY,
-      posX: this._position.x,
-      posY: this._position.y,
+      posX: this._cropPosition.x,
+      posY: this._cropPosition.y,
     };
-    document.body.classList.add('dragging');
-    document.addEventListener('pointermove', this._onPointerMove);
-    document.addEventListener('pointerup',   this._onPointerUp);
+    this.$cropViewport?.classList.add('dragging');
+    document.addEventListener('pointermove', this._cropMove);
+    document.addEventListener('pointerup',   this._cropUp);
+    document.querySelectorAll('.crop-preset').forEach((b) => b.classList.remove('active'));
   };
 
-  _onPointerMove = (e) => {
-    if (!this._dragStart) return;
+  _cropMove = (e) => {
+    if (!this._cropDragStart || !this.$cropViewport) return;
 
-    const dx = e.clientX - this._dragStart.clientX;
-    const dy = e.clientY - this._dragStart.clientY;
+    const rect = this.$cropViewport.getBoundingClientRect();
+    const dx = e.clientX - this._cropDragStart.clientX;
+    const dy = e.clientY - this._cropDragStart.clientY;
 
-    // Sensitivity: 100px of drag = 25% position change
-    const sensitivity = 0.25;
-    const newX = Math.max(0, Math.min(100, this._dragStart.posX - dx * sensitivity));
-    const newY = Math.max(0, Math.min(100, this._dragStart.posY - dy * sensitivity));
+    // Convert pixel delta → position percentage
+    // Dragging right means user wants to see more of the left side → x decreases
+    const sx = (100 / rect.width)  * 1.4;
+    const sy = (100 / rect.height) * 1.4;
 
-    this._position = { x: newX, y: newY };
-    this._applyPosition();
+    this._cropPosition = {
+      x: Math.max(0, Math.min(100, this._cropDragStart.posX - dx * sx)),
+      y: Math.max(0, Math.min(100, this._cropDragStart.posY - dy * sy)),
+    };
+    this._updateCropPreview();
   };
 
-  _onPointerUp = () => {
-    this._dragStart = null;
-    document.body.classList.remove('dragging');
-    document.removeEventListener('pointermove', this._onPointerMove);
-    document.removeEventListener('pointerup',   this._onPointerUp);
+  _cropUp = () => {
+    this._cropDragStart = null;
+    this.$cropViewport?.classList.remove('dragging');
+    this.$cropViewport?.classList.add('has-dragged');
+    document.removeEventListener('pointermove', this._cropMove);
+    document.removeEventListener('pointerup',   this._cropUp);
   };
 
-  _applyPosition() {
-    if (!this.$bgDynamic) return;
-    this.$bgDynamic.style.objectPosition = `${this._position.x}% ${this._position.y}%`;
-  }
-
-  // ── Show / hide reposition button ───────────────────────────
-  showRepositionButton(visible) {
-    if (!this.$repoBtn) return;
-    this.$repoBtn.hidden = !visible;
-    if (!visible && this._isRepositioning) {
-      this.exitRepositionMode();
-    }
-  }
-
-  /**
-   * Called by app.js when a track changes.
-   * Ignored if the user has a custom background set.
-   * Non-blocking: playback starts; background swaps when fetch resolves.
-   */
+  // ── Dynamic background (Pexels, opt-in) ─────────────────────
   async setDynamic(trackTitle, trackAuthor = '') {
     if (this._hasCustom) return;
     if (!trackTitle) return;
-
-    // Respect the user's opt-in preference — off by default
     if (!Storage.getAutoBg()) return;
 
-    // Build a mood-based search query (title + author keeps it focused)
-    const query = this._buildQuery(trackTitle, trackAuthor);
-
-    // Check sessionStorage cache first
+    const query    = this._buildQuery(trackTitle, trackAuthor);
     const cacheKey = CACHE_PREFIX + this._hashKey(query);
     const cached   = this._readCache(cacheKey);
-    if (cached) {
-      this._crossFadeTo(cached);
-      return;
-    }
 
-    // Abort any previous in-flight request
-    if (this._pendingFetch) {
-      this._pendingFetch.abort();
-    }
+    if (cached) { this._crossFadeTo(cached); return; }
+
+    if (this._pendingFetch) this._pendingFetch.abort();
     this._pendingFetch = new AbortController();
 
     try {
       const url = new URL(BG_FETCH_PATH, window.location.origin);
       url.searchParams.set('q', query);
 
-      const res = await fetch(url.toString(), {
-        method: 'GET',
-        signal: this._pendingFetch.signal,
-      });
-
+      const res  = await fetch(url.toString(), { method: 'GET', signal: this._pendingFetch.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
@@ -188,46 +264,13 @@ export class BgManager {
         this._writeCache(cacheKey, data.url);
         this._crossFadeTo(data.url);
       } else {
-        // No result — fall back to default video
         this._showDefaultVideo();
       }
     } catch (err) {
-      if (err.name === 'AbortError') return; // intentional abort, do nothing
-      // Network or API failure — fall back gracefully
-      this._showDefaultVideo();
+      if (err.name !== 'AbortError') this._showDefaultVideo();
     } finally {
       this._pendingFetch = null;
     }
-  }
-
-  /**
-   * Apply a user-uploaded image as the background.
-   * Returns true on success, false if validation fails.
-   */
-  setCustom(file) {
-    // Validate MIME type
-    if (!file.type.startsWith('image/')) {
-      return { ok: false, error: 'Only image files are supported.' };
-    }
-    // Validate size
-    if (file.size > MAX_FILE_SIZE) {
-      const mb = (MAX_FILE_SIZE / (1024 * 1024)).toFixed(0);
-      return { ok: false, error: `Image must be smaller than ${mb} MB.` };
-    }
-
-    // Revoke previous object URL to avoid memory leak
-    if (this._customObjectUrl) {
-      URL.revokeObjectURL(this._customObjectUrl);
-    }
-
-    // Reset position to center when a new image is uploaded
-    this._position = { x: 50, y: 50 };
-
-    this._customObjectUrl = URL.createObjectURL(file);
-    this._hasCustom       = true;
-
-    this._crossFadeTo(this._customObjectUrl, /* hideVideo */ true);
-    return { ok: true };
   }
 
   /**
@@ -239,10 +282,10 @@ export class BgManager {
       this._customObjectUrl = null;
     }
     this._hasCustom = false;
-    this._position  = { x: 50, y: 50 };
 
-    // Reset object-position
+    // Reset bg-dynamic inline styles
     if (this.$bgDynamic) {
+      this.$bgDynamic.style.objectFit      = '';
       this.$bgDynamic.style.objectPosition = '';
     }
 
@@ -253,86 +296,53 @@ export class BgManager {
     }
   }
 
-  /**
-   * Show only the default video (fade out the dynamic layer).
-   */
   _showDefaultVideo() {
-    if (!this.$bgDynamic) return;
-    this.$bgDynamic.classList.remove('visible');
-    // Restore video visibility in case it was hidden
-    if (this.$bgVideo) {
-      this.$bgVideo.style.opacity = '1';
-    }
+    this.$bgDynamic?.classList.remove('visible');
+    if (this.$bgVideo) this.$bgVideo.style.opacity = '1';
   }
 
-  /**
-   * Cross-fade #bg-dynamic to a new image URL.
-   */
-  _crossFadeTo(imageUrl, hideVideo = false) {
+  _crossFadeTo(imageUrl, hideVideo = false, position = { x: 50, y: 50 }, fit = 'cover') {
     if (!this.$bgDynamic) return;
 
     const img = this.$bgDynamic;
-
-    // Preload the new image before showing it
     const preload = new Image();
+
     preload.onload = () => {
       img.src = imageUrl;
+      img.style.objectFit      = hideVideo ? fit : 'cover';
+      img.style.objectPosition = hideVideo ? `${position.x}% ${position.y}%` : '50% 50%';
       img.classList.add('visible');
       this._currentDynamicUrl = imageUrl;
 
-      // Apply saved position for custom images
-      if (hideVideo) {
-        this._applyPosition();
-      }
-
-      if (hideVideo && this.$bgVideo) {
-        // Dim the video layer so only the image shows
-        this.$bgVideo.style.opacity = '0';
-      } else if (this.$bgVideo) {
-        this.$bgVideo.style.opacity = '1';
+      if (this.$bgVideo) {
+        this.$bgVideo.style.opacity = hideVideo ? '0' : '1';
       }
     };
-    preload.onerror = () => {
-      // Preload failed — stay on current background
-      this._showDefaultVideo();
-    };
+    preload.onerror = () => this._showDefaultVideo();
     preload.src = imageUrl;
   }
 
-  // ── Search query builder ────────────────────────────────────
+  // ── Query builder ────────────────────────────────────────────
   _buildQuery(title, author) {
-    // Strip common filler words from song titles for better Pexels results
-    const stopWords = /\b(official|video|lyrics|audio|ft|feat|remix|mix|version|mv|hd|4k|vevo)\b/gi;
+    const stopWords  = /\b(official|video|lyrics|audio|ft|feat|remix|mix|version|mv|hd|4k|vevo)\b/gi;
     const cleanTitle = title.replace(stopWords, '').replace(/[^\w\s]/g, ' ').trim();
+    const parts      = [cleanTitle];
 
-    // Build query: "title by author ambient nature" — the "ambient nature"
-    // bias keeps results atmospheric rather than literal
-    const parts = [cleanTitle];
     if (author && author !== 'Unknown Artist' && author.length < 40) {
-      // Only include author if it's not a YouTube channel name
       const cleanAuthor = author.replace(/vevo|official|music|records|entertainment/gi, '').trim();
       if (cleanAuthor.length > 2) parts.push(cleanAuthor);
     }
     parts.push('nature landscape');
-
     return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 120);
   }
 
-  // ── sessionStorage cache helpers ────────────────────────────
+  // ── Cache ────────────────────────────────────────────────────
   _hashKey(str) {
-    // Simple 32-bit hash — just for a cache key, not for security
     let h = 0;
-    for (let i = 0; i < str.length; i++) {
-      h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-    }
+    for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
     return (h >>> 0).toString(36);
   }
 
-  _readCache(key) {
-    try { return sessionStorage.getItem(key) || null; } catch { return null; }
-  }
-
-  _writeCache(key, value) {
-    try { sessionStorage.setItem(key, value); } catch { /* quota exceeded */ }
-  }
+  _readCache(key)        { try { return sessionStorage.getItem(key) || null; } catch { return null; } }
+  _writeCache(key, val)  { try { sessionStorage.setItem(key, val); } catch { /* quota */ } }
 }

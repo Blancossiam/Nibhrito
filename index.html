@@ -34,23 +34,53 @@
   <!-- Subtle gradient overlay -->
   <div id="bg-overlay" aria-hidden="true"></div>
 
-  <!-- Reposition mode: drag hint overlay -->
-  <div id="reposition-overlay" aria-hidden="true">
-    <div id="reposition-hint">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
-      Drag to reposition
+  <!-- ── Image Crop Modal ──────────────────────────────────── -->
+  <div id="crop-modal" role="dialog" aria-modal="true" aria-label="Adjust background image" aria-hidden="true">
+    <div id="crop-modal-box">
+
+      <div id="crop-modal-header">
+        <span class="crop-modal-title">Adjust Background</span>
+        <button id="crop-cancel-x" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+
+      <!-- Preview viewport — drag to reposition -->
+      <div id="crop-preview-viewport" role="img" aria-label="Drag to reposition image">
+        <img id="crop-preview-img" alt="" draggable="false" />
+        <div id="crop-drag-hint" aria-hidden="true">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
+          Drag to reposition
+        </div>
+      </div>
+
+      <!-- Position presets -->
+      <div id="crop-presets" role="group" aria-label="Position presets">
+        <button class="crop-preset" data-x="50" data-y="0">Top</button>
+        <button class="crop-preset active" data-x="50" data-y="50">Center</button>
+        <button class="crop-preset" data-x="50" data-y="100">Bottom</button>
+        <button class="crop-preset" data-x="0" data-y="50">Left</button>
+        <button class="crop-preset" data-x="100" data-y="50">Right</button>
+      </div>
+
+      <!-- Fill / Fit -->
+      <div id="crop-fit-row">
+        <span class="crop-fit-label">Display mode</span>
+        <div id="crop-fit-options" role="group">
+          <button class="crop-fit-btn active" data-fit="cover" aria-pressed="true">Fill</button>
+          <button class="crop-fit-btn" data-fit="contain" aria-pressed="false">Fit</button>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div id="crop-actions">
+        <button id="crop-cancel-btn" class="btn-secondary">Cancel</button>
+        <button id="crop-apply-btn" class="btn-primary">Apply</button>
+      </div>
+
     </div>
-    <button id="reposition-done" aria-label="Done repositioning">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-      Done
-    </button>
   </div>
 
-  <!-- Floating reposition trigger button -->
-  <button id="reposition-btn" aria-label="Adjust background image position" title="Adjust position" hidden>
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"/></svg>
-    Adjust position
-  </button>
 
   <!-- ── Hidden YouTube Player (off-screen, required for IFrame API) ── -->
   <div id="yt-player-wrap" aria-hidden="true"></div>
