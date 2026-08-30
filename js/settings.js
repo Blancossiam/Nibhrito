@@ -6,17 +6,27 @@
  *   - Provider tab switching
  *   - Playlist URL input + validation
  *   - Load / Clear actions
- *   - Spotify embed visibility
+ *   - Spotify embed visibility (drawer stays open for Spotify)
+ *   - Background image upload (client-side only, never uploaded to server)
+ *   - Custom background clear
  */
 
 import { Storage } from './storage.js';
 import { YouTubeProvider } from './providers/youtube.js';
 import { SpotifyProvider  } from './providers/spotify.js';
 
+const MAX_BG_SIZE = 8 * 1024 * 1024; // 8 MB
+
 export class Settings {
-  constructor(onLoad, onClear) {
-    this.onLoad  = onLoad;   // callback(provider, type, url)
-    this.onClear = onClear;  // callback()
+  /**
+   * @param {Function} onLoad  - callback(providerType, url)
+   * @param {Function} onClear - callback()
+   * @param {BgManager} bgManager - background manager instance
+   */
+  constructor(onLoad, onClear, bgManager) {
+    this.onLoad    = onLoad;
+    this.onClear   = onClear;
+    this.bgManager = bgManager;
 
     // DOM refs
     this.$overlay       = document.getElementById('settings-overlay');
@@ -33,9 +43,16 @@ export class Settings {
     this.$spotifyIframe = document.getElementById('spotify-iframe');
     this.$providerNote  = document.getElementById('provider-note');
 
+    // Background upload refs
+    this.$bgUploadInput = document.getElementById('bg-upload-input');
+    this.$btnClearBg    = document.getElementById('btn-clear-bg');
+    this.$bgUploadError = document.getElementById('bg-upload-error');
+    this.$bgPreview     = document.getElementById('bg-upload-preview');
+
     // State
     this.activeProvider = Storage.getProvider();  // 'youtube' | 'spotify'
     this.isOpen = false;
+    this._isSpotifyLoaded = false; // track if Spotify embed is active
 
     this._init();
   }
@@ -88,6 +105,19 @@ export class Settings {
 
     // Clear button
     this.$btnClear.addEventListener('click', () => this._handleClear());
+
+    // ── Background upload ──────────────────────────────────
+    if (this.$bgUploadInput) {
+      this.$bgUploadInput.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        this._handleBgUpload(file);
+      });
+    }
+
+    if (this.$btnClearBg) {
+      this.$btnClearBg.addEventListener('click', () => this._handleClearBg());
+    }
   }
 
   // ── Open / Close ────────────────────────────────────────────
@@ -126,6 +156,7 @@ export class Settings {
   }
 
   _showSpotifyEmbed() {
+    // Show the embed if we have a valid stored Spotify URL
     const savedUrl = Storage.getPlaylistUrl();
     if (savedUrl && SpotifyProvider.validateUrl(savedUrl) && this.activeProvider === 'spotify') {
       this.$spotifyWrap.classList.add('visible');
@@ -133,58 +164,111 @@ export class Settings {
   }
 
   _hideSpotifyEmbed() {
-    // Keep but hide; will show when Spotify is active with valid URL
     this.$spotifyWrap.classList.remove('visible');
   }
 
   // ── Provider note ───────────────────────────────────────────
   _updateProviderNote() {
+    // Use DOM construction instead of innerHTML to prevent any XSS risk
+    const note = this.$providerNote;
+    note.textContent = ''; // clear
+
     if (this.activeProvider === 'youtube') {
-      this.$providerNote.innerHTML = `
-        Paste a <strong>YouTube playlist URL</strong> — e.g.<br>
-        <em style="opacity:0.65;font-size:0.7rem">youtube.com/playlist?list=PL...</em><br><br>
-        Controls play, pause, next, previous, seek and volume.<br>
-        Music plays through the official YouTube embed.
-      `;
+      const line1 = document.createElement('span');
+      line1.appendChild(this._strong('YouTube'));
+      line1.appendChild(document.createTextNode(' playlist or video URL — e.g.'));
+      note.appendChild(line1);
+      note.appendChild(document.createElement('br'));
+
+      const example = document.createElement('em');
+      example.style.cssText = 'opacity:0.65;font-size:0.7rem';
+      example.textContent = 'youtube.com/playlist?list=PL...  or  youtu.be/xxxxx';
+      note.appendChild(example);
+      note.appendChild(document.createElement('br'));
+      note.appendChild(document.createElement('br'));
+
+      const line2 = document.createTextNode('Controls play, pause, next, previous, seek and volume.');
+      note.appendChild(line2);
+      note.appendChild(document.createElement('br'));
+
+      const line3 = document.createTextNode('Music plays through the official YouTube embed.');
+      note.appendChild(line3);
     } else {
-      this.$providerNote.innerHTML = `
-        Paste a <strong>Spotify playlist URL</strong> — e.g.<br>
-        <em style="opacity:0.65;font-size:0.7rem">open.spotify.com/playlist/...</em><br><br>
-        <strong>Note:</strong> Full playback requires being logged into Spotify in your browser.
-        30-second previews are available without login. The Spotify player appears below.
-      `;
+      const line1 = document.createElement('span');
+      line1.appendChild(this._strong('Spotify'));
+      line1.appendChild(document.createTextNode(' track, album, or playlist URL — e.g.'));
+      note.appendChild(line1);
+      note.appendChild(document.createElement('br'));
+
+      const example = document.createElement('em');
+      example.style.cssText = 'opacity:0.65;font-size:0.7rem';
+      example.textContent = 'open.spotify.com/playlist/...';
+      note.appendChild(example);
+      note.appendChild(document.createElement('br'));
+      note.appendChild(document.createElement('br'));
+
+      const warn = document.createTextNode('The Spotify player appears below. Full playback requires being logged into Spotify in your browser. 30-second previews are available without login.');
+      note.appendChild(this._strong('Note: '));
+      note.appendChild(warn);
     }
+  }
+
+  _strong(text) {
+    const el = document.createElement('strong');
+    el.textContent = text;
+    return el;
   }
 
   // ── Load ────────────────────────────────────────────────────
   _handleLoad() {
-    const url = this.$urlInput.value.trim();
-    if (!url) {
-      this._showError('Please paste a playlist URL.');
+    const rawUrl = this.$urlInput.value.trim();
+    if (!rawUrl) {
+      this._showError('Please paste a playlist or video URL.');
       return;
     }
 
-    const isYT  = YouTubeProvider.validateUrl(url);
-    const isSP  = SpotifyProvider.validateUrl(url);
+    // Basic URL sanity check before validation
+    let url;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      this._showError('Please enter a valid URL starting with https://');
+      return;
+    }
+
+    // Only allow https
+    if (url.protocol !== 'https:') {
+      this._showError('Only HTTPS URLs are accepted for security.');
+      return;
+    }
+
+    const isYT = YouTubeProvider.validateUrl(rawUrl);
+    const isSP = SpotifyProvider.validateUrl(rawUrl);
 
     if (this.activeProvider === 'youtube' && !isYT) {
-      this._showError('Please enter a valid YouTube playlist URL.');
+      this._showError('Please enter a valid YouTube playlist or video URL.');
       return;
     }
     if (this.activeProvider === 'spotify' && !isSP) {
-      this._showError('Please enter a valid Spotify playlist or album URL.');
+      this._showError('Please enter a valid Spotify track, album, or playlist URL.');
       return;
     }
 
-    Storage.setPlaylistUrl(url);
+    Storage.setPlaylistUrl(rawUrl);
     Storage.setProvider(this.activeProvider);
 
     if (this.activeProvider === 'spotify') {
+      // Show the embed in the drawer
       this.$spotifyWrap.classList.add('visible');
+      this._isSpotifyLoaded = true;
+      // Call load but do NOT close the drawer — user must interact with
+      // the Spotify embed widget, which is inside this drawer
+      this.onLoad(this.activeProvider, rawUrl);
+      // Keep drawer open; show a note
+    } else {
+      this.onLoad(this.activeProvider, rawUrl);
+      this.close();
     }
-
-    this.onLoad(this.activeProvider, url);
-    this.close();
   }
 
   // ── Clear ───────────────────────────────────────────────────
@@ -192,13 +276,78 @@ export class Settings {
     this.$urlInput.value = '';
     this._clearError();
     this.$spotifyWrap.classList.remove('visible');
-    this.$spotifyIframe.src = '';
+    this.$spotifyIframe.removeAttribute('src');
+    this._isSpotifyLoaded = false;
     Storage.clearPlaylist();
     this.onClear();
   }
 
+  // ── Background upload ────────────────────────────────────────
+  _handleBgUpload(file) {
+    this._clearBgError();
+
+    // Validate MIME
+    if (!file.type.startsWith('image/')) {
+      this._showBgError('Only image files are supported (JPG, PNG, GIF, WebP, etc.).');
+      // Reset the input so the same file can be re-selected after fix
+      this.$bgUploadInput.value = '';
+      return;
+    }
+
+    // Validate size
+    if (file.size > MAX_BG_SIZE) {
+      const mb = (MAX_BG_SIZE / (1024 * 1024)).toFixed(0);
+      this._showBgError(`Image must be smaller than ${mb} MB. Please choose a smaller file.`);
+      this.$bgUploadInput.value = '';
+      return;
+    }
+
+    // Apply — entirely client-side, no network request
+    const result = this.bgManager.setCustom(file);
+    if (!result.ok) {
+      this._showBgError(result.error);
+      this.$bgUploadInput.value = '';
+      return;
+    }
+
+    // Show thumbnail preview and activate clear button
+    if (this.$bgPreview) {
+      // Revoke any existing preview URL to avoid memory leaks
+      if (this.$bgPreview.dataset.blobUrl) {
+        URL.revokeObjectURL(this.$bgPreview.dataset.blobUrl);
+      }
+      const previewUrl = URL.createObjectURL(file);
+      this.$bgPreview.dataset.blobUrl = previewUrl;
+      this.$bgPreview.style.backgroundImage = `url(${CSS.escape ? `"${previewUrl}"` : previewUrl})`;
+      this.$bgPreview.classList.add('has-image');
+    }
+    if (this.$btnClearBg) {
+      this.$btnClearBg.classList.add('visible');
+    }
+  }
+
+  _handleClearBg() {
+    this.bgManager.clearCustom();
+
+    // Reset preview
+    if (this.$bgPreview) {
+      if (this.$bgPreview.dataset.blobUrl) {
+        URL.revokeObjectURL(this.$bgPreview.dataset.blobUrl);
+        delete this.$bgPreview.dataset.blobUrl;
+      }
+      this.$bgPreview.style.backgroundImage = '';
+      this.$bgPreview.classList.remove('has-image');
+    }
+
+    // Reset file input
+    if (this.$bgUploadInput) this.$bgUploadInput.value = '';
+    if (this.$btnClearBg)    this.$btnClearBg.classList.remove('visible');
+    this._clearBgError();
+  }
+
   // ── Error display ───────────────────────────────────────────
   _showError(msg) {
+    // textContent — never innerHTML — to prevent XSS
     this.$errorMsg.textContent = msg;
     this.$errorMsg.classList.add('visible');
     this.$urlInput.classList.add('error');
@@ -208,6 +357,18 @@ export class Settings {
   _clearError() {
     this.$errorMsg.classList.remove('visible');
     this.$urlInput.classList.remove('error');
+  }
+
+  _showBgError(msg) {
+    if (!this.$bgUploadError) return;
+    this.$bgUploadError.textContent = msg;
+    this.$bgUploadError.classList.add('visible');
+  }
+
+  _clearBgError() {
+    if (!this.$bgUploadError) return;
+    this.$bgUploadError.classList.remove('visible');
+    this.$bgUploadError.textContent = '';
   }
 
   // ── Expose Spotify iframe for provider to use ───────────────

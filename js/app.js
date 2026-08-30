@@ -8,6 +8,7 @@
  *   - State transitions
  *   - Toast notifications
  *   - Persistence restore on load
+ *   - Dynamic background via BgManager
  */
 
 import { Player }                from './player.js';
@@ -15,17 +16,18 @@ import { Settings }               from './settings.js';
 import { YouTubeProvider }        from './providers/youtube.js';
 import { SpotifyProvider }        from './providers/spotify.js';
 import { Storage }                from './storage.js';
+import { BgManager }              from './bgManager.js';
 
 // ── Error messages (user-friendly) ──────────────────────────
 const ERROR_MESSAGES = {
-  'invalid_url':          "This playlist link isn't supported.",
-  'playback_unavailable': "Playback isn't available for this playlist.",
-  'embed_not_allowed':    "This playlist can't be embedded. Try a different one.",
-  'not_found':            "We couldn't find that playlist.",
+  'invalid_url':          "This link isn't supported. Please paste a valid YouTube or Spotify URL.",
+  'playback_unavailable': "Playback isn't available for this content.",
+  'embed_not_allowed':    "This content can't be embedded. Try a different one.",
+  'not_found':            "We couldn't find that content.",
   'playback_error':       "Something went wrong with playback.",
   'timeout':              "Loading timed out. Please try again.",
   'network':              "Network error — please check your connection.",
-  'default':              "We couldn't load the playlist. Please try again.",
+  'default':              "We couldn't load the content. Please try again.",
 };
 
 function friendlyError(code) {
@@ -34,10 +36,13 @@ function friendlyError(code) {
 
 class MoonlitRiverApp {
   constructor() {
+    this.bgManager = new BgManager();
+
     this.player   = new Player();
     this.settings = new Settings(
       (providerType, url) => this._loadPlaylist(providerType, url),
-      ()                  => this._clearPlaylist()
+      ()                  => this._clearPlaylist(),
+      this.bgManager
     );
 
     this.ytProvider = null;
@@ -106,6 +111,8 @@ class MoonlitRiverApp {
 
     this.ytProvider.on('track', (info) => {
       this.player.setTrackInfo(info);
+      // Trigger dynamic background on each track change (non-blocking)
+      this.bgManager.setDynamic(info.title, info.author);
     });
 
     this.ytProvider.on('progress', (data) => {
@@ -115,6 +122,11 @@ class MoonlitRiverApp {
     this.ytProvider.on('error', (code) => {
       this.player.setState('empty');
       this._showToast(friendlyError(code), 'error');
+    });
+
+    // Capability event — disable prev/next for single-video mode
+    this.ytProvider.on('capability', (caps) => {
+      this.player.setCapability(caps);
     });
 
     this.player.setProvider(this.ytProvider, 'youtube');

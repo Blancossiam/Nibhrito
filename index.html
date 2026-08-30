@@ -28,6 +28,9 @@
     <source src="assets/background.mp4" type="video/mp4" />
   </video>
 
+  <!-- Dynamic background image (cross-fades per track, z-index above video) -->
+  <img id="bg-dynamic" aria-hidden="true" alt="" src="" />
+
   <!-- Subtle gradient overlay -->
   <div id="bg-overlay" aria-hidden="true"></div>
 
@@ -145,11 +148,11 @@
         <!-- Empty State -->
         <div id="empty-state">
           <p>Sit back and enjoy the night</p>
-          <button id="empty-open-settings" aria-label="Open settings to add a playlist">
+          <button id="empty-open-settings" aria-label="Open settings to add a playlist or video">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z" />
             </svg>
-            Add a playlist
+            Add a playlist or video
           </button>
         </div>
 
@@ -199,14 +202,14 @@
 
       <!-- Playlist URL Input -->
       <div id="provider-panel" role="tabpanel" aria-labelledby="tab-youtube">
-        <label class="settings-label" for="playlist-url-input">Playlist URL</label>
-        <input id="playlist-url-input" class="settings-input" type="url" placeholder="Paste your playlist link here..."
+        <label class="settings-label" for="playlist-url-input">Playlist or Video URL</label>
+        <input id="playlist-url-input" class="settings-input" type="url" placeholder="Paste your YouTube or Spotify link here..."
           autocomplete="off" autocorrect="off" spellcheck="false" aria-describedby="url-error-msg" />
         <div id="url-error-msg" class="settings-error-msg" role="alert" aria-live="polite"></div>
 
         <!-- Actions -->
         <div class="settings-actions">
-          <button id="btn-load-playlist" class="btn-primary">Load Playlist</button>
+          <button id="btn-load-playlist" class="btn-primary">Load</button>
           <button id="btn-clear-playlist" class="btn-secondary">Clear</button>
         </div>
 
@@ -220,7 +223,40 @@
       <!-- Spotify Embed Container -->
       <div id="spotify-embed-wrap">
         <iframe id="spotify-iframe" title="Spotify music player"
-          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          loading="lazy"></iframe>
+      </div>
+
+      <!-- ── Background Section ─────────────────────────────── -->
+      <div id="bg-upload-section">
+        <div class="settings-section-divider" aria-hidden="true"></div>
+        <label class="settings-label" for="bg-upload-input">Custom Background</label>
+
+        <div id="bg-upload-row">
+          <!-- Thumbnail preview -->
+          <div id="bg-upload-preview" aria-hidden="true" title="Current custom background"></div>
+
+          <div id="bg-upload-controls">
+            <label for="bg-upload-input" class="btn-upload" id="btn-upload-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+              </svg>
+              Upload image
+              <input id="bg-upload-input" type="file" accept="image/*"
+                aria-label="Upload a custom background image" />
+            </label>
+            <button id="btn-clear-bg" class="btn-secondary btn-clear-bg" aria-label="Clear custom background">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+              Use default
+            </button>
+          </div>
+        </div>
+
+        <div id="bg-upload-error" class="settings-error-msg" role="alert" aria-live="polite"></div>
+
+        <p class="bg-upload-note">Your image stays in your browser — it is never uploaded to any server.</p>
       </div>
 
     </div><!-- /settings-body -->

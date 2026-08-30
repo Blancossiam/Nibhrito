@@ -4,13 +4,27 @@
  * Uses the YouTube IFrame API (https://www.youtube.com/iframe_api).
  * The player iframe is placed off-screen (not display:none — that breaks the API).
  * Our custom UI drives all playback. This is fully ToS-compliant.
+ *
+ * Supported URL formats:
+ *   youtube.com/playlist?list=PLxxxxxxx
+ *   youtube.com/watch?v=xxx&list=PLxxxxxxx
+ *   youtube.com/watch?v=xxx                 ← NEW: single-video mode
+ *   youtu.be/xxx                            ← NEW: short link (single or with list)
+ *   youtu.be/xxx?list=PLxxxxxxx             ← NEW: short link with playlist
+ *   music.youtube.com/playlist?list=PLxxxxxx
  */
+
+// Allowlist regex for playlist IDs and video IDs
+const PLAYLIST_ID_RE = /^[a-zA-Z0-9_-]{2,64}$/;
+const VIDEO_ID_RE    = /^[a-zA-Z0-9_-]{11}$/;
 
 export class YouTubeProvider {
   constructor(containerId) {
     this.containerId = containerId;
     this.player = null;
     this.playlistId = null;
+    this.videoId = null;
+    this.mode = 'playlist'; // 'playlist' | 'single'
     this.ready = false;
     this.pendingPlay = false;
     this._callbacks = {};
@@ -51,36 +65,88 @@ export class YouTubeProvider {
     });
   }
 
-  // ── Extract playlist ID from URL ───────────────────────────
+  // ── URL parsing ────────────────────────────────────────────
+
+  /**
+   * Extract playlist ID from a YouTube URL.
+   * Returns a validated playlist ID string, or null.
+   */
   static extractPlaylistId(url) {
-    // Supports:
-    //   youtube.com/playlist?list=PLxxxxxxx
-    //   youtube.com/watch?v=xxx&list=PLxxxxxxx
-    //   youtu.be/xxx?list=PLxxxxxxx
-    //   music.youtube.com/playlist?list=PLxxxxxxx
     const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-    return match ? match[1] : null;
+    const id = match ? match[1] : null;
+    return id && PLAYLIST_ID_RE.test(id) ? id : null;
   }
 
+  /**
+   * Extract video ID from a YouTube URL (all formats).
+   * Returns a validated 11-char video ID, or null.
+   */
+  static extractVideoId(url) {
+    let id = null;
+
+    // youtu.be/<id>
+    const shortMatch = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+    if (shortMatch) id = shortMatch[1];
+
+    // youtube.com/watch?v=<id> or youtube.com/shorts/<id>
+    if (!id) {
+      const longMatch = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+      if (longMatch) id = longMatch[1];
+    }
+
+    // youtube.com/shorts/<id>
+    if (!id) {
+      const shortsMatch = url.match(/\/shorts\/([a-zA-Z0-9_-]{11})/);
+      if (shortsMatch) id = shortsMatch[1];
+    }
+
+    return id && VIDEO_ID_RE.test(id) ? id : null;
+  }
+
+  /**
+   * Validate a YouTube URL.
+   * Accepts playlist URLs and single-video URLs.
+   */
   static validateUrl(url) {
     if (!url || typeof url !== 'string') return false;
-    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/.test(url) &&
-      YouTubeProvider.extractPlaylistId(url) !== null;
+    const isYTDomain = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/.test(url);
+    if (!isYTDomain) return false;
+    return (
+      YouTubeProvider.extractPlaylistId(url) !== null ||
+      YouTubeProvider.extractVideoId(url)    !== null
+    );
   }
 
   // ── Initialise player ──────────────────────────────────────
   async loadPlaylist(url) {
     const playlistId = YouTubeProvider.extractPlaylistId(url);
-    if (!playlistId) throw new Error('invalid_url');
+    const videoId    = YouTubeProvider.extractVideoId(url);
 
-    this.playlistId = playlistId;
+    if (!playlistId && !videoId) throw new Error('invalid_url');
+
     this._emit('state', 'loading');
 
+    if (playlistId) {
+      this.mode       = 'playlist';
+      this.playlistId = playlistId;
+      this.videoId    = null;
+    } else {
+      this.mode       = 'single';
+      this.videoId    = videoId;
+      this.playlistId = null;
+    }
+
+    // Inform the player UI about capabilities
+    this._emit('capability', {
+      hasPrev: this.mode === 'playlist',
+      hasNext: this.mode === 'playlist',
+    });
+
     await this.loadAPI();
-    await this._createPlayer(playlistId);
+    await this._createPlayer();
   }
 
-  _createPlayer(playlistId) {
+  _createPlayer() {
     return new Promise((resolve, reject) => {
       // Destroy existing player
       if (this.player) {
@@ -102,21 +168,21 @@ export class YouTubeProvider {
         reject(new Error('YouTube player timed out'));
       }, 20000);
 
-      this.player = new window.YT.Player('yt-player-inner', {
+      // Build playerVars depending on mode
+      const playerVars = {
+        autoplay:       0,
+        controls:       0,
+        disablekb:      1,
+        modestbranding: 1,
+        rel:            0,
+        origin:         window.location.origin,
+      };
+
+      const ytConfig = {
         width:  '320',
         height: '180',
-        playerVars: {
-          listType:       'playlist',
-          list:           playlistId,
-          autoplay:       0,
-          controls:       0,
-          disablekb:      1,
-          modestbranding: 1,
-          rel:            0,
-          origin:         window.location.origin,
-        },
         events: {
-          onReady: (e) => {
+          onReady: () => {
             clearTimeout(timeoutId);
             this.ready = true;
             this._applyVolume();
@@ -132,7 +198,23 @@ export class YouTubeProvider {
             this._handleError(e.data);
           },
         },
-      });
+      };
+
+      if (this.mode === 'playlist') {
+        playerVars.listType = 'playlist';
+        playerVars.list     = this.playlistId;
+        this.player = new window.YT.Player('yt-player-inner', {
+          ...ytConfig,
+          playerVars,
+        });
+      } else {
+        // Single-video mode: pass videoId at the top level
+        this.player = new window.YT.Player('yt-player-inner', {
+          ...ytConfig,
+          videoId: this.videoId,
+          playerVars,
+        });
+      }
     });
   }
 
@@ -219,11 +301,13 @@ export class YouTubeProvider {
   pause() { this.player?.pauseVideo();  }
 
   next() {
+    if (this.mode === 'single') return; // no-op for single-video
     this.player?.nextVideo();
     setTimeout(() => this._updateTrackInfo(), 800);
   }
 
   prev() {
+    if (this.mode === 'single') return; // no-op for single-video
     this.player?.previousVideo();
     setTimeout(() => this._updateTrackInfo(), 800);
   }

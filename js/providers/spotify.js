@@ -12,7 +12,15 @@
  *   Spotify in their browser.
  * - We render the official Spotify embed inside the settings drawer,
  *   giving the user access to Spotify's own player UI.
+ *
+ * Supported URL formats:
+ *   open.spotify.com/track/<id>
+ *   open.spotify.com/album/<id>
+ *   open.spotify.com/playlist/<id>
  */
+
+// Allowlist for valid Spotify ID characters
+const SPOTIFY_ID_RE = /^[a-zA-Z0-9]{10,30}$/;
 
 export class SpotifyProvider {
   constructor() {
@@ -20,6 +28,7 @@ export class SpotifyProvider {
     this.embedController = null;
     this.playlistId = null;
     this.playlistType = null;
+    this._loadTimeoutId = null;
   }
 
   on(event, fn)  { this._callbacks[event] = fn; }
@@ -30,9 +39,14 @@ export class SpotifyProvider {
     // Supports:
     //   open.spotify.com/playlist/PLAYLIST_ID
     //   open.spotify.com/album/ALBUM_ID
-    //   open.spotify.com/artist/ARTIST_ID
-    const match = url.match(/open\.spotify\.com\/(playlist|album|artist|track)\/([a-zA-Z0-9]+)/);
-    return match ? { type: match[1], id: match[2] } : null;
+    //   open.spotify.com/track/TRACK_ID
+    const match = url.match(/open\.spotify\.com\/(playlist|album|track)\/([a-zA-Z0-9]+)/);
+    if (!match) return null;
+    const type = match[1];
+    const id   = match[2];
+    // Validate the ID against allowlist
+    if (!SPOTIFY_ID_RE.test(id)) return null;
+    return { type, id };
   }
 
   static validateUrl(url) {
@@ -42,7 +56,10 @@ export class SpotifyProvider {
 
   // ── Build embed URL ────────────────────────────────────────
   static buildEmbedUrl(type, id) {
-    return `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`;
+    // Validate inputs before building the URL (no raw user data in src)
+    if (!['playlist', 'album', 'track'].includes(type)) return null;
+    if (!SPOTIFY_ID_RE.test(id)) return null;
+    return `https://open.spotify.com/embed/${encodeURIComponent(type)}/${encodeURIComponent(id)}?utm_source=generator&theme=0`;
   }
 
   // ── Load playlist / render embed ───────────────────────────
@@ -56,44 +73,68 @@ export class SpotifyProvider {
     this._emit('state', 'loading');
 
     const embedUrl = SpotifyProvider.buildEmbedUrl(parsed.type, parsed.id);
+    if (!embedUrl) throw new Error('invalid_url');
 
-    // Set the iframe src — the Spotify embed is self-contained
-    iframeEl.src = embedUrl;
+    // Reset the iframe to force a clean load
+    iframeEl.removeAttribute('src');
     iframeEl.height = '352';
 
+    // Set up load/error handlers before setting src
     iframeEl.onload = () => {
+      if (this._loadTimeoutId) {
+        clearTimeout(this._loadTimeoutId);
+        this._loadTimeoutId = null;
+      }
       this._emit('state', 'loaded');
       this._emit('track', {
-        title:  'Spotify Playlist',
-        author: 'Use the player below',
+        title:  this._typeLabel(parsed.type),
+        author: 'Use the Spotify player in settings',
       });
     };
 
-    iframeEl.onerror = () => {
-      this._emit('error', 'playback_unavailable');
-    };
+    // onerror does not fire reliably for cross-origin iframes;
+    // use a timeout fallback instead (30 s) — embed still works visually
+    this._loadTimeoutId = setTimeout(() => {
+      // If we haven't heard back, assume it loaded (embed is self-contained)
+      this._emit('state', 'loaded');
+      this._emit('track', {
+        title:  this._typeLabel(parsed.type),
+        author: 'Use the Spotify player in settings',
+      });
+    }, 30000);
 
-    // Try to use the Spotify Iframe API for programmatic control
+    // Set src — this kicks off the iframe load
+    iframeEl.src = embedUrl;
+
+    // Try to attach the Spotify Iframe API for best-effort programmatic control
     this._tryLoadIframeApi(iframeEl);
   }
 
+  _typeLabel(type) {
+    return type === 'track' ? 'Spotify Track' : type === 'album' ? 'Spotify Album' : 'Spotify Playlist';
+  }
+
   _tryLoadIframeApi(iframeEl) {
-    // The Spotify Embed Iframe API allows limited control
+    // The Spotify Embed Iframe API allows limited control.
+    // It may not be available in all browsers/contexts.
     if (window.SpotifyIframeApi) {
       this._initController(iframeEl);
       return;
     }
 
-    const existing = document.getElementById('spotify-api-script');
-    if (!existing) {
+    if (!document.getElementById('spotify-api-script')) {
       const script = document.createElement('script');
-      script.id  = 'spotify-api-script';
-      script.src = 'https://open.spotify.com/embed/iframe-api/v1';
+      script.id    = 'spotify-api-script';
+      script.src   = 'https://open.spotify.com/embed/iframe-api/v1';
+      script.async = true;
       document.head.appendChild(script);
     }
 
+    // Use a named callback to avoid clobbering a previous handler
+    const prevReady = window.onSpotifyIframeApiReady;
     window.onSpotifyIframeApiReady = (IFrameAPI) => {
       window.SpotifyIframeApi = IFrameAPI;
+      if (prevReady) prevReady(IFrameAPI);
       this._initController(iframeEl);
     };
   }
@@ -137,6 +178,10 @@ export class SpotifyProvider {
 
   // ── Cleanup ────────────────────────────────────────────────
   destroy() {
+    if (this._loadTimeoutId) {
+      clearTimeout(this._loadTimeoutId);
+      this._loadTimeoutId = null;
+    }
     this.embedController = null;
     this.playlistId = null;
   }

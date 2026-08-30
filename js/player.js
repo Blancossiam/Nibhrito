@@ -260,6 +260,23 @@ export class Player {
     this.provider     = provider;
     this.providerType = type;
     this._setProgress(0, 0);
+    // Reset capability when provider changes
+    this.setCapability({ hasPrev: true, hasNext: true });
+  }
+
+  // ── Set provider capabilities ────────────────────────────────
+  // Called by YouTube provider when in single-video mode to disable nav.
+  setCapability({ hasPrev = true, hasNext = true } = {}) {
+    if (this.$btnPrev) {
+      this.$btnPrev.disabled = !hasPrev;
+      this.$btnPrev.style.opacity = hasPrev ? '' : '0.35';
+      this.$btnPrev.title = hasPrev ? 'Previous' : 'Previous (playlist only)';
+    }
+    if (this.$btnNext) {
+      this.$btnNext.disabled = !hasNext;
+      this.$btnNext.style.opacity = hasNext ? '' : '0.35';
+      this.$btnNext.title = hasNext ? 'Next' : 'Next (playlist only)';
+    }
   }
 
   // ── SVG Icons (minimal line icons) ─────────────────────────
